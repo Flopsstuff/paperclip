@@ -61,16 +61,23 @@ export function choosePrimaryRuntimeApiUrl(input: {
     }
   }
 
+  // Agents run co-located with the server, so the address the server actually
+  // binds to is the reliable runtime URL. allowedHostnames is a browser-facing
+  // Host-header guard list, not a guarantee the API is reachable there (e.g. a
+  // Cloudflare-fronted public hostname whose API port is not exposed), so it
+  // must not be the primary agent runtime URL for a non-wildcard bind.
+  const bindHost = normalizeHost(input.bindHost);
+  if (bindHost && !isWildcardHost(bindHost)) {
+    return formatOrigin("http:", bindHost, input.port);
+  }
+
+  // Wildcard bind (0.0.0.0/::): the concrete listen address is ambiguous, so a
+  // configured public hostname is the best available guess.
   const allowedHostname = input.allowedHostnames
     .map((value) => value.trim())
     .find(Boolean);
   if (allowedHostname) {
     return formatOrigin("http:", allowedHostname, input.port);
-  }
-
-  const bindHost = normalizeHost(input.bindHost);
-  if (bindHost && !isWildcardHost(bindHost)) {
-    return formatOrigin("http:", bindHost, input.port);
   }
 
   return formatOrigin("http:", "localhost", input.port);

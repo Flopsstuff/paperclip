@@ -17,6 +17,31 @@ describe("runtime API discovery", () => {
     ).toBe("https://paperclip.example.com");
   });
 
+  it("prefers a concrete bind host over allowedHostnames for the primary runtime URL", () => {
+    // FLO-168: a co-located agent must reach the address the server actually
+    // binds to (loopback), not a Cloudflare-fronted public hostname whose API
+    // port is not exposed.
+    expect(
+      choosePrimaryRuntimeApiUrl({
+        authPublicBaseUrl: null,
+        allowedHostnames: ["pc.aignite.pl"],
+        bindHost: "127.0.0.1",
+        port: 3100,
+      }),
+    ).toBe("http://127.0.0.1:3100");
+  });
+
+  it("falls back to allowedHostnames for the primary runtime URL on a wildcard bind", () => {
+    expect(
+      choosePrimaryRuntimeApiUrl({
+        authPublicBaseUrl: null,
+        allowedHostnames: ["runtime-host.example.test"],
+        bindHost: "0.0.0.0",
+        port: 3100,
+      }),
+    ).toBe("http://runtime-host.example.test:3100");
+  });
+
   it("builds ordered callback candidates from explicit, allowed, bind, and interface hosts", () => {
     expect(
       buildRuntimeApiCandidateUrls({
