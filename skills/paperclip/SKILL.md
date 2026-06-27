@@ -562,7 +562,7 @@ Exact response fields are documented in `skills/paperclip/references/api-referen
 - **Budget**: auto-paused at 100%. Above 80%, focus on critical tasks only.
 - **Escalate** via `chainOfCommand` when stuck. Reassign to manager or create a task for them.
 - **Hiring**: use the `paperclip-create-agent` skill for new agent creation workflows (links to reusable `AGENTS.md` templates like `Coder` and `QA`).
-- **Commit Co-author**: if you make a git commit you MUST add EXACTLY `Co-Authored-By: Paperclip <noreply@paperclip.ing>` to the end of each commit message. Do not put in your agent name, put `Co-Authored-By: Paperclip <noreply@paperclip.ing>`.
+- **Commit Co-author**: every git commit you make MUST include one `Co-Authored-By:` trailer naming you and your model: `Co-Authored-By: <Agent name> (<Model>) <agent-name@agents.flopbut.local>`. Example: `Co-Authored-By: Prospero (Claude Opus 4.8) <prospero@agents.flopbut.local>`. Never remove trailers that are already there: when amending, rebasing or squashing, keep the co-author lines of every combined commit (drop exact duplicates only).
 
 This is rule #1:
 
