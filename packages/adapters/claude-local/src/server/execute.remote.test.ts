@@ -336,12 +336,18 @@ describe("claude remote execution", () => {
     expect(call?.[2]).toContain("12345678-1234-4abc-9def-123456789012");
   });
 
-  it("does not local-mkdir a remote-only adapterConfig.cwd for SSH execution (FLO-541)", async () => {
-    // Robert's scenario: the agent is bound to an SSH environment and its
-    // adapterConfig.cwd is a remote-only path (e.g. "/Users/rob/aignite"). With an
-    // agent_home workspace source the resolved cwd is exactly that remote-only path.
-    // The adapter must NOT try to create/stat it on the Pi (which fails EACCES and
-    // kills the run before any ssh); the remote cwd is ensured on the remote host.
+  it("treats a remote-only adapterConfig.cwd as remote-only and never touches the local FS for it (FLO-542)", async () => {
+    // Robert's scenario: an agent bound to an SSH environment whose adapterConfig.cwd is a
+    // remote-only path ("/Users/rob/aignite"). For a remote target that path designates the
+    // REMOTE workspace; it must never (a) be created/stat'd on the Pi (pre-fix this ran
+    // `mkdir -p /Users/rob/aignite` locally and threw EACCES before any ssh) nor (b) be used
+    // as the LOCAL staging dir that gets synced up (pre-fix a remote agent_home agent would
+    // sync an empty/wrong dir because the remote-only path does not exist locally). The local
+    // staging source must be the agent's local workspace/agent-home cwd instead.
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-claude-remote-only-cwd-"));
+    cleanupDirs.push(rootDir);
+    const localAgentHome = path.join(rootDir, "agent-home");
+    await mkdir(localAgentHome, { recursive: true });
     const remoteOnlyCwd = "/Users/rob/aignite";
 
     await execute({
@@ -365,7 +371,9 @@ describe("claude remote execution", () => {
       },
       context: {
         paperclipWorkspace: {
+          // agent_home source: the local staging dir is the agent's own home directory.
           source: "agent_home",
+          cwd: localAgentHome,
         },
       },
       executionTransport: {
@@ -383,9 +391,16 @@ describe("claude remote execution", () => {
       onLog: async () => {},
     });
 
-    // The local directory helper must never be invoked for a remote target: pre-fix it
-    // ran `mkdir -p /Users/rob/aignite` on the Pi and threw before ssh.
+    // (a) The local directory helper must never be invoked for a remote target.
     expect(ensureAbsoluteDirectory).not.toHaveBeenCalled();
+    // (b) The workspace synced to the remote is the LOCAL agent-home, never the remote-only cwd.
+    expect(prepareWorkspaceForSshExecution).toHaveBeenCalledTimes(1);
+    expect(prepareWorkspaceForSshExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ localDir: localAgentHome }),
+    );
+    expect(restoreWorkspaceFromSshExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ localDir: localAgentHome }),
+    );
     // And the run still reaches the (mocked) remote CLI spawn.
     expect(runChildProcess).toHaveBeenCalledTimes(1);
   });

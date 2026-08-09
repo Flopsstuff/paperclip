@@ -188,11 +188,14 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
       )
     : [];
   const runtimePrimaryUrl = asString(context.paperclipRuntimePrimaryUrl, "");
+  const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);
   const configuredCwd = asString(config.cwd, "");
-  const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
+  // For remote targets adapterConfig.cwd designates the REMOTE workspace (env.remoteWorkspacePath) and
+  // must not hijack the LOCAL staging dir; only let it override agent-home for local targets (FLO-542).
+  const useConfiguredInsteadOfAgentHome =
+    !executionTargetIsRemote && workspaceSource === "agent_home" && configuredCwd.length > 0;
   const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
   const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
-  const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);
   let effectiveExecutionCwd = adapterExecutionTargetRemoteCwd(executionTarget, cwd);
   const shapedWorkspaceEnv = shapePaperclipWorkspaceEnvForExecution({
     workspaceCwd: effectiveWorkspaceCwd,
@@ -206,7 +209,7 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   // "/Users/rob/aignite"); the execution cwd lives on the remote host and is ensured by
   // the remote runtime path (see ensureAdapterExecutionTargetDirectory /
   // prepareRemoteManagedRuntime). Doing a local mkdir here fails with EACCES on the Pi
-  // and kills the run before any ssh happens (FLO-541).
+  // and kills the run before any ssh happens (FLO-542).
   if (!executionTargetIsRemote) {
     await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
   }
@@ -447,7 +450,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       )
     : [];
   const configuredCwd = asString(config.cwd, "");
-  const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
+  // See buildClaudeRuntimeConfig: for remote targets adapterConfig.cwd is the REMOTE workspace, not a
+  // local override, so only honor it over agent-home for local targets (FLO-542).
+  const useConfiguredInsteadOfAgentHome =
+    !executionTargetIsRemote && workspaceSource === "agent_home" && configuredCwd.length > 0;
   const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
   const hasExplicitClaudeConfigDir =
     typeof configEnv.CLAUDE_CONFIG_DIR === "string" && configEnv.CLAUDE_CONFIG_DIR.trim().length > 0;

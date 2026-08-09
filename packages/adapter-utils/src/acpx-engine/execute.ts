@@ -980,20 +980,23 @@ async function buildRuntime(input: {
   const workspaceBranch = asString(workspaceContext.branchName, "");
   const workspaceWorktreePath = asString(workspaceContext.worktreePath, "");
   const agentHome = asString(workspaceContext.agentHome, "");
-  const configuredCwd = asString(config.cwd, "");
-  const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
-  const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
-  const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
   const executionTarget = readAdapterExecutionTarget({
     executionTarget: input.ctx.executionTarget,
     legacyRemoteExecution: input.ctx.executionTransport?.remoteExecution,
   });
   const remoteExecutionIdentity = adapterExecutionTargetSessionIdentity(executionTarget);
+  const executionTargetIsRemote = remoteExecutionIdentity !== null;
+  const configuredCwd = asString(config.cwd, "");
+  // For remote targets adapterConfig.cwd designates the REMOTE workspace (env.remoteWorkspacePath) and
+  // must not hijack the LOCAL staging dir; only let it override agent-home for local targets (FLO-542).
+  const useConfiguredInsteadOfAgentHome =
+    !executionTargetIsRemote && workspaceSource === "agent_home" && configuredCwd.length > 0;
+  const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
+  const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
   const effectiveExecutionCwd =
     remoteExecutionIdentity && typeof remoteExecutionIdentity.remoteCwd === "string"
       ? remoteExecutionIdentity.remoteCwd
       : cwd;
-  const executionTargetIsRemote = remoteExecutionIdentity !== null;
   const shapedWorkspaceEnv = shapePaperclipWorkspaceEnvForExecution({
     workspaceCwd: effectiveWorkspaceCwd,
     workspaceWorktreePath,
@@ -1001,7 +1004,7 @@ async function buildRuntime(input: {
     executionCwd: effectiveExecutionCwd,
   });
   // Only ensure the LOCAL cwd for local targets; for remote targets `cwd` may be a
-  // remote-only path and the execution cwd is ensured on the remote host (FLO-541).
+  // remote-only path and the execution cwd is ensured on the remote host (FLO-542).
   if (!executionTargetIsRemote) {
     await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
   }
