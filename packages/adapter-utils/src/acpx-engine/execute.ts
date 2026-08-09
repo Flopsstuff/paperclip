@@ -1000,7 +1000,11 @@ async function buildRuntime(input: {
     executionTargetIsRemote,
     executionCwd: effectiveExecutionCwd,
   });
-  await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
+  // Only ensure the LOCAL cwd for local targets; for remote targets `cwd` may be a
+  // remote-only path and the execution cwd is ensured on the remote host (FLO-541).
+  if (!executionTargetIsRemote) {
+    await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
+  }
 
   const acpxAgent = normalizeAgent(config);
   const mode = normalizeMode(config);

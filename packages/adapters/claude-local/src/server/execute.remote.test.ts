@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const {
   runChildProcess,
   ensureCommandResolvable,
+  ensureAbsoluteDirectory,
   resolveCommandForLogs,
   prepareWorkspaceForSshExecution,
   restoreWorkspaceFromSshExecution,
@@ -26,6 +27,7 @@ const {
     startedAt: new Date().toISOString(),
   })),
   ensureCommandResolvable: vi.fn(async () => undefined),
+  ensureAbsoluteDirectory: vi.fn(async () => undefined),
   resolveCommandForLogs: vi.fn(async () => "ssh://fixture@127.0.0.1:2222/remote/workspace :: claude"),
   prepareWorkspaceForSshExecution: vi.fn(async () => ({ gitBacked: false })),
   restoreWorkspaceFromSshExecution: vi.fn(async () => undefined),
@@ -47,6 +49,7 @@ vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
   return {
     ...actual,
     ensureCommandResolvable,
+    ensureAbsoluteDirectory,
     resolveCommandForLogs,
     runChildProcess,
   };
@@ -331,6 +334,60 @@ describe("claude remote execution", () => {
     const call = runChildProcess.mock.calls[0] as unknown as [string, string, string[]] | undefined;
     expect(call?.[2]).toContain("--resume");
     expect(call?.[2]).toContain("12345678-1234-4abc-9def-123456789012");
+  });
+
+  it("does not local-mkdir a remote-only adapterConfig.cwd for SSH execution (FLO-541)", async () => {
+    // Robert's scenario: the agent is bound to an SSH environment and its
+    // adapterConfig.cwd is a remote-only path (e.g. "/Users/rob/aignite"). With an
+    // agent_home workspace source the resolved cwd is exactly that remote-only path.
+    // The adapter must NOT try to create/stat it on the Pi (which fails EACCES and
+    // kills the run before any ssh); the remote cwd is ensured on the remote host.
+    const remoteOnlyCwd = "/Users/rob/aignite";
+
+    await execute({
+      runId: "run-remote-only-cwd",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Claude Coder",
+        adapterType: "claude_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        command: "claude",
+        cwd: remoteOnlyCwd,
+      },
+      context: {
+        paperclipWorkspace: {
+          source: "agent_home",
+        },
+      },
+      executionTransport: {
+        remoteExecution: {
+          host: "127.0.0.1",
+          port: 2222,
+          username: "fixture",
+          remoteWorkspacePath: remoteOnlyCwd,
+          remoteCwd: remoteOnlyCwd,
+          privateKey: "PRIVATE KEY",
+          knownHosts: "[127.0.0.1]:2222 ssh-ed25519 AAAA",
+          strictHostKeyChecking: true,
+        },
+      },
+      onLog: async () => {},
+    });
+
+    // The local directory helper must never be invoked for a remote target: pre-fix it
+    // ran `mkdir -p /Users/rob/aignite` on the Pi and threw before ssh.
+    expect(ensureAbsoluteDirectory).not.toHaveBeenCalled();
+    // And the run still reaches the (mocked) remote CLI spawn.
+    expect(runChildProcess).toHaveBeenCalledTimes(1);
   });
 
 });

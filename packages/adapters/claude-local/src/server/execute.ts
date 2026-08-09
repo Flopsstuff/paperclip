@@ -201,7 +201,15 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
     executionTargetIsRemote,
     executionCwd: effectiveExecutionCwd,
   });
-  await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
+  // Only ensure the LOCAL cwd for local execution targets. For remote (SSH/sandbox)
+  // targets `cwd` may be a remote-only path (e.g. a configured adapterConfig.cwd like
+  // "/Users/rob/aignite"); the execution cwd lives on the remote host and is ensured by
+  // the remote runtime path (see ensureAdapterExecutionTargetDirectory /
+  // prepareRemoteManagedRuntime). Doing a local mkdir here fails with EACCES on the Pi
+  // and kills the run before any ssh happens (FLO-541).
+  if (!executionTargetIsRemote) {
+    await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
+  }
 
   const envConfig = parseObject(config.env);
   const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
