@@ -7,6 +7,7 @@ import type { RunProcessResult } from "@paperclipai/adapter-utils/server-utils";
 const {
   runChildProcess,
   ensureCommandResolvable,
+  ensureAbsoluteDirectory,
   resolveCommandForLogs,
   prepareWorkspaceForSshExecution,
   restoreWorkspaceFromSshExecution,
@@ -27,6 +28,7 @@ const {
     startedAt: new Date().toISOString(),
   })),
   ensureCommandResolvable: vi.fn(async () => undefined),
+  ensureAbsoluteDirectory: vi.fn(async () => undefined),
   resolveCommandForLogs: vi.fn(async () => "ssh://fixture@127.0.0.1:2222/remote/workspace :: claude"),
   prepareWorkspaceForSshExecution: vi.fn(async () => ({ gitBacked: false })),
   restoreWorkspaceFromSshExecution: vi.fn(async () => undefined),
@@ -48,6 +50,7 @@ vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
   return {
     ...actual,
     ensureCommandResolvable,
+    ensureAbsoluteDirectory,
     resolveCommandForLogs,
     runChildProcess,
   };
@@ -401,6 +404,68 @@ describe("claude remote execution", () => {
     });
 
     expect(result.errorCode).toBe("duplex_channel_lost");
+  });
+
+  it("treats a remote-only adapterConfig.cwd as remote-only and never touches the local FS for it", async () => {
+    // An SSH-bound agent whose adapterConfig.cwd is a remote-only path: that path must be
+    // neither created locally nor used as the local staging dir.
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-claude-remote-only-cwd-"));
+    cleanupDirs.push(rootDir);
+    const localAgentHome = path.join(rootDir, "agent-home");
+    await mkdir(localAgentHome, { recursive: true });
+    const remoteOnlyCwd = "/remote-only/workspace";
+
+    await execute({
+      runId: "run-remote-only-cwd",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Claude Coder",
+        adapterType: "claude_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        command: "claude",
+        cwd: remoteOnlyCwd,
+      },
+      context: {
+        paperclipWorkspace: {
+          source: "agent_home",
+          cwd: localAgentHome,
+        },
+      },
+      executionTransport: {
+        remoteExecution: {
+          host: "127.0.0.1",
+          port: 2222,
+          username: "fixture",
+          remoteWorkspacePath: remoteOnlyCwd,
+          remoteCwd: remoteOnlyCwd,
+          privateKey: "PRIVATE KEY",
+          knownHosts: "[127.0.0.1]:2222 ssh-ed25519 AAAA",
+          strictHostKeyChecking: true,
+        },
+      },
+      onLog: async () => {},
+    });
+
+    // (a) The local directory helper must never be invoked for a remote target.
+    expect(ensureAbsoluteDirectory).not.toHaveBeenCalled();
+    // (b) The workspace synced to the remote is the LOCAL agent-home, never the remote-only cwd.
+    expect(prepareWorkspaceForSshExecution).toHaveBeenCalledTimes(1);
+    expect(prepareWorkspaceForSshExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ localDir: localAgentHome }),
+    );
+    expect(restoreWorkspaceFromSshExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ localDir: localAgentHome }),
+    );
+    expect(runChildProcess).toHaveBeenCalledTimes(1);
   });
 
 });
