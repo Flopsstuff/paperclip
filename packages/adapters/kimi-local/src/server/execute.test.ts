@@ -13,9 +13,10 @@ const prepareRuntimeMock = vi.hoisted(() => vi.fn(async () => ({
 })));
 const resolveCommandForLogsMock = vi.hoisted(() => vi.fn(async () => "kimi"));
 const runProcessMock = vi.hoisted(() => vi.fn());
+const isRemoteMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("@paperclipai/adapter-utils/execution-target", () => ({
-  adapterExecutionTargetIsRemote: () => false,
+  adapterExecutionTargetIsRemote: isRemoteMock,
   adapterExecutionTargetRemoteCwd: (_target: unknown, cwd: string) => cwd,
   overrideAdapterExecutionTargetRemoteCwd: (target: unknown, _cwd: string) => target,
   adapterExecutionTargetSessionIdentity: () => ({ kind: "local" }),
@@ -91,6 +92,8 @@ describe("kimi_local execute", () => {
     prepareRuntimeMock.mockClear();
     resolveCommandForLogsMock.mockClear();
     runProcessMock.mockReset();
+    isRemoteMock.mockReset();
+    isRemoteMock.mockReturnValue(false);
   });
 
   afterEach(async () => {
@@ -448,5 +451,33 @@ describe("kimi_local execute", () => {
 
     expect(seenArgs).toContain("--skills-dir");
     expect(seenArgs[seenArgs.indexOf("--skills-dir") + 1]).toContain("paperclip-kimi-skills-");
+  });
+
+  it("treats a remote-only adapterConfig.cwd as remote-only and never touches the local FS for it", async () => {
+    // A remote-bound agent whose adapterConfig.cwd only exists on the remote host: that path
+    // must be neither created locally nor used as the local staging dir.
+    const root = await makeTempRoot();
+    const localAgentHome = path.join(root, "agent-home");
+    await fs.mkdir(localAgentHome, { recursive: true });
+    const remoteOnlyCwd = path.join(root, "remote-only", "workspace");
+    isRemoteMock.mockReturnValue(true);
+    prepareRuntimeMock.mockResolvedValueOnce({
+      workspaceRemoteDir: "/remote/workspace",
+      runtimeRootDir: null,
+      assetDirs: {},
+      restoreWorkspace: async () => {},
+    } as never);
+    runProcessMock.mockResolvedValue({ exitCode: 0, signal: null, timedOut: false, stdout: KIMI_STDOUT, stderr: "" });
+
+    await execute(makeContext(root, {
+      config: { cwd: remoteOnlyCwd },
+      context: { paperclipWorkspace: { source: "agent_home", cwd: localAgentHome } },
+    }));
+
+    await expect(fs.stat(remoteOnlyCwd)).rejects.toThrow();
+    expect(prepareRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(prepareRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceLocalDir: localAgentHome }),
+    );
   });
 });
