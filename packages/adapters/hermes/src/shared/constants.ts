@@ -24,6 +24,9 @@ export const DEFAULT_GRACE_SEC = 10;
  * ~/.hermes/config.yaml — preventing the adapter from overriding a
  * user's configured default (e.g. MiniMax, OpenRouter, etc.) with a
  * hardcoded Anthropic model during Paperclip onboarding.
+ *
+ * "auto" is a marker, never an argument: the -m flag is omitted entirely
+ * when the model resolves to it.
  */
 export const DEFAULT_MODEL = "auto";
 

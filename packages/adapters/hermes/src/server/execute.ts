@@ -444,7 +444,11 @@ export async function execute(
   const args: string[] = ["chat", "-q", prompt];
   if (useQuiet) args.push("-Q");
 
-  if (model) {
+  // "auto" is not a model name the CLI can forward: it reaches the provider
+  // backend verbatim, and a Codex/ChatGPT account rejects it with a
+  // non-retryable HTTP 400. Omitting -m is what makes Hermes resolve the model
+  // from its own config — same treatment as "auto" gets for --provider below.
+  if (model && model !== "auto") {
     args.push("-m", model);
   }
 
