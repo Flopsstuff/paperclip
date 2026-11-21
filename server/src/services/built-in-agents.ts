@@ -1996,13 +1996,17 @@ export function builtInAgentService(db: Db) {
     return Promise.all(DEFINITIONS.map(async (definition) => state(definition, await findSingleAgent(companyId, definition))));
   }
 
-  async function reconcileDefinitionDefaults(companyId: string, key: string) {
+  async function reconcileDefinitionDefaults(
+    companyId: string,
+    key: string,
+    options: { preserveName?: boolean } = {},
+  ) {
     const definition = requireBuiltInAgentDefinition(key);
     await ensureCompany(companyId);
     const existing = await findSingleAgent(companyId, definition);
     if (!existing) return state(definition, null);
     const patch = {
-      name: definition.displayName,
+      ...(options.preserveName ? {} : { name: definition.displayName }),
       role: definition.defaultRole,
       title: definition.defaultTitle ?? null,
       icon: definition.defaultIcon ?? null,
@@ -2199,7 +2203,8 @@ export async function reconcileBuiltInAgentsOnStartup(db: Db) {
     }
     seen.add(instanceKey);
     try {
-      await svc.reconcileDefinitionDefaults(row.companyId, marker.key);
+      // Operator renames survive restarts; only an explicit reset restores the stock name.
+      await svc.reconcileDefinitionDefaults(row.companyId, marker.key, { preserveName: true });
       reconciled += 1;
     } catch (err) {
       companyFailures += 1;

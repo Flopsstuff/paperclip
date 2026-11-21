@@ -1115,7 +1115,7 @@ describeEmbeddedPostgres("built-in agents", () => {
 
     const [row] = await db.select().from(agents).where(eq(agents.id, agentId));
     expect(row).toMatchObject({
-      name: "Briefs Agent",
+      name: "Old Name",
       role: "general",
       title: null,
       capabilities: "Prepares concise operational briefs for the board and agent company.",
@@ -1304,7 +1304,7 @@ describeEmbeddedPostgres("built-in agents", () => {
     // The company after the affected one was still reconciled (its drifted
     // built-in row was repaired to stock) rather than skipped.
     const [healthyBriefs] = await db.select().from(agents).where(eq(agents.id, healthyBriefsId));
-    expect(healthyBriefs?.name).toBe("Briefs Agent");
+    expect(healthyBriefs).toMatchObject({ name: "Stale Briefs", role: "general" });
   });
 
   it("automatically materializes the Reflection Coach bundle without enabling background work", async () => {
@@ -1494,6 +1494,26 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(resetFile.content).toContain("<<<SUMMARY-DRAFT>>>");
     expect(resetFile.content).toContain("<<<END-SUMMARY-DRAFT>>>");
     expect(resetFile.content).not.toContain("Operator edit.");
+  });
+
+  it("keeps operator-renamed built-in agents through startup reconcile and restores the stock name on reset", async () => {
+    const companyId = await seedCompany();
+    const builtIns = builtInAgentService(db);
+    const summarizer = await builtIns.ensure(companyId, "summarizer");
+    const coach = await builtIns.ensure(companyId, "reflection-coach");
+    const stockSummarizerName = summarizer.agent!.name;
+    await db.update(agents).set({ name: "Clio" }).where(eq(agents.id, summarizer.agent!.id));
+    await db.update(agents).set({ name: "Argus" }).where(eq(agents.id, coach.agent!.id));
+
+    await reconcileBuiltInAgentsOnStartup(db);
+    await reconcileBuiltInAgentsOnStartup(db);
+
+    expect((await builtIns.get(companyId, "summarizer")).agent).toMatchObject({ name: "Clio", title: summarizer.agent!.title });
+    expect((await builtIns.get(companyId, "reflection-coach")).agent?.name).toBe("Argus");
+
+    const reset = await builtIns.reset(companyId, "summarizer", { resources: ["agent"] }, instructionOperator);
+    expect(reset.agent?.name).toBe(stockSummarizerName);
+    expect((await builtIns.get(companyId, "reflection-coach")).agent?.name).toBe("Argus");
   });
 
   it("keeps a built-in routine task while the agent prepares", async () => {
